@@ -26,7 +26,7 @@ import static org.junit.Assert.assertNull;
  * Kotlin clone of com.intellij.xdebugger.XDebuggerTestUtil
  */
 public class XDebuggerTestUtil {
-    public static final int TIMEOUT_MS = 25_000;
+    public static final int TIMEOUT_MS = 1_125_000;
 
     public static List<XStackFrame> collectFrames(@NotNull XExecutionStack thread) {
         return collectFrames(thread, TIMEOUT_MS * 2);

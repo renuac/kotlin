@@ -3,22 +3,22 @@ Run Java
 Connected to the target VM
 suspendMain.kt:15
 Thread stack trace:
-	invokeSuspend:15, SuspendMainKt$main$2 (continuation)
+	CoroutinePreflightFrame invokeSuspend:15, SuspendMainKt$main$2 (continuation)
 		($result, $this$coroutineScope, this)
-CoroutineNameIdState(name=coroutine, id=-1, state=UNKNOWN, dispatcher=null)
-	startUndispatchedOrReturn:91, UndispatchedKt (kotlinx.coroutines.intrinsics)
+CoroutineInfo: -1 coroutine UNKNOWN
+	CoroutineStackFrame startUndispatchedOrReturn:91, UndispatchedKt (kotlinx.coroutines.intrinsics)
 		($i$a$-undispatchedResult-UndispatchedKt$startUndispatchedOrReturn$2, $i$f$undispatchedResult, $this$startUndispatchedOrReturn, $this$undispatchedResult$iv, block, receiver)
-	coroutineScope:177, CoroutineScopeKt (kotlinx.coroutines)
+	CoroutineStackFrame coroutineScope:177, CoroutineScopeKt (kotlinx.coroutines)
 		($completion, $i$a$-suspendCoroutineUninterceptedOrReturn-CoroutineScopeKt$coroutineScope$2, block, coroutine, uCont)
-	main:9, SuspendMainKt (continuation)
+	CoroutineStackFrame main:9, SuspendMainKt (continuation)
 		($completion)
-	invokeSuspend:86, IntrinsicsKt__IntrinsicsJvmKt$createCoroutineUnintercepted$$inlined$createCoroutineFromSuspendFunction$IntrinsicsKt__IntrinsicsJvmKt$1 (kotlin.coroutines.intrinsics)
+	CoroutineStackFrame invokeSuspend:86, IntrinsicsKt__IntrinsicsJvmKt$createCoroutineUnintercepted$$inlined$createCoroutineFromSuspendFunction$IntrinsicsKt__IntrinsicsJvmKt$1 (kotlin.coroutines.intrinsics)
 		($i$a$-createCoroutineFromSuspendFunction-IntrinsicsKt__IntrinsicsJvmKt$createCoroutineUnintercepted$1, it, result, this)
-	resumeWith:33, BaseContinuationImpl (kotlin.coroutines.jvm.internal)
+	CoroutineStackFrame resumeWith:33, BaseContinuationImpl (kotlin.coroutines.jvm.internal)
 		($i$a$-with-BaseContinuationImpl$resumeWith$1, $this$with, completion, current, param, result, this)
-	startCoroutine:114, ContinuationKt (kotlin.coroutines)
+	CoroutineStackFrame startCoroutine:114, ContinuationKt (kotlin.coroutines)
 		($this$startCoroutine, completion)
-	runSuspend:19, RunSuspendKt (kotlin.coroutines.jvm.internal)
+	CoroutineStackFrame runSuspend:19, RunSuspendKt (kotlin.coroutines.jvm.internal)
 		(block, run)
 Disconnected from the target VM
 

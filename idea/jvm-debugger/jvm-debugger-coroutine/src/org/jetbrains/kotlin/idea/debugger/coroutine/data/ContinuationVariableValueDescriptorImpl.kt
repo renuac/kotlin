@@ -13,7 +13,7 @@ import com.intellij.openapi.project.Project
 import com.sun.jdi.ObjectReference
 import com.sun.jdi.Value
 
-class ContinuationValueDescriptorImpl(
+class ContinuationVariableValueDescriptorImpl(
     project: Project,
     val continuation: ObjectReference,
     val fieldName: String,

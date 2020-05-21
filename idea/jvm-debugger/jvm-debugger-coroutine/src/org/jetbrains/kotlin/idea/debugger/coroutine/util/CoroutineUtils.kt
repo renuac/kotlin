@@ -19,6 +19,7 @@ import com.intellij.xdebugger.XSourcePosition
 import com.sun.jdi.*
 import org.jetbrains.kotlin.idea.debugger.*
 import org.jetbrains.kotlin.idea.debugger.coroutine.data.SuspendExitMode
+import org.jetbrains.kotlin.idea.debugger.coroutine.proxy.invokeLater
 import org.jetbrains.kotlin.idea.debugger.evaluate.DefaultExecutionContext
 import org.jetbrains.kotlin.idea.util.application.isUnitTestMode
 
@@ -104,7 +105,9 @@ fun StackTraceElement.findPosition(project: Project): XSourcePosition? =
     getPosition(project, className, lineNumber)
 
 fun Location.findPosition(project: Project) =
-    getPosition(project, declaringType().name(), lineNumber())
+    readAction {
+        getPosition(project, declaringType().name(), lineNumber())
+    }
 
 private fun getPosition(project: Project, className: String, lineNumber: Int): XSourcePosition? {
     val psiFacade = JavaPsiFacade.getInstance(project)
