@@ -4,15 +4,19 @@
  */
 package org.jetbrains.kotlin.idea.debugger.coroutine.data
 
-import com.intellij.debugger.engine.JavaStackFrame
+import com.intellij.debugger.SourcePosition
+import com.intellij.debugger.engine.DebugProcessImpl
+import com.intellij.debugger.engine.JVMStackFrameInfoProvider
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl
 import com.intellij.debugger.jdi.StackFrameProxyImpl
-import com.intellij.debugger.ui.tree.render.DescriptorLabelListener
+import com.intellij.debugger.memory.utils.StackFrameItem
+import com.intellij.debugger.ui.impl.watch.MethodsTracker
+import com.intellij.debugger.ui.impl.watch.StackFrameDescriptorImpl
 import com.intellij.xdebugger.XSourcePosition
 import com.intellij.xdebugger.frame.XCompositeNode
 import com.intellij.xdebugger.frame.XNamedValue
+import com.intellij.xdebugger.frame.XStackFrame
 import com.intellij.xdebugger.frame.XValueChildrenList
-import com.intellij.xdebugger.impl.frame.XDebuggerFramesList.ItemWithSeparatorAbove
 import org.jetbrains.kotlin.idea.debugger.coroutine.KotlinDebuggerCoroutinesBundle
 import org.jetbrains.kotlin.idea.debugger.stackFrame.KotlinStackFrame
 
@@ -24,11 +28,22 @@ import org.jetbrains.kotlin.idea.debugger.stackFrame.KotlinStackFrame
  */
 class CoroutinePreflightFrame(
     val coroutineInfoData: CoroutineInfoData,
-    val frame: StackFrameProxyImpl,
+    private val frame: StackFrameProxyImpl,
     val threadPreCoroutineFrames: List<StackFrameProxyImpl>,
     val mode: SuspendExitMode,
     private val firstFrameVariables: List<XNamedValue> = coroutineInfoData.topFrameVariables()
-) : CoroutineStackFrame(frame, null, firstFrameVariables) {
+) : KotlinStackFrame(frame), JVMStackFrameInfoProvider {
+
+    override fun superBuildVariables(evaluationContext: EvaluationContextImpl, children: XValueChildrenList) {
+        super.superBuildVariables(evaluationContext, children)
+        children.let {
+            val varNames = (0 until children.size()).map { children.getName(it) }.toSet()
+            firstFrameVariables.forEach {
+                if (!varNames.contains(it.name))
+                    children.add(it)
+            }
+        }
+    }
 
     override fun isInLibraryContent() = false
 
@@ -38,66 +53,27 @@ class CoroutinePreflightFrame(
         coroutineInfoData.restoredStackTrace(mode)
 }
 
-class CreationCoroutineStackFrame(
-    frame: StackFrameProxyImpl,
-    sourcePosition: XSourcePosition?,
-    val first: Boolean
-) : CoroutineStackFrame(frame, sourcePosition, emptyList(), false), ItemWithSeparatorAbove {
+class CreationCoroutineStackFrame(debugProcess: DebugProcessImpl, item: CoroutineStackFrameItem, val first: Boolean) : CoroutineStackFrame(debugProcess, item) {
+    override fun getCaptionAboveOf() = KotlinDebuggerCoroutinesBundle.message("coroutine.dump.creation.trace")
 
-    override fun getCaptionAboveOf() =
-        KotlinDebuggerCoroutinesBundle.message("coroutine.dump.creation.trace")
-
-    override fun hasSeparatorAbove() =
+    override fun hasSeparatorAbove(): Boolean =
         first
 }
 
-open class CoroutineStackFrame(
-    frame: StackFrameProxyImpl,
-    val position: XSourcePosition?,
-    private val spilledVariables: List<XNamedValue>? = null,
-    private val includeFrameVariables: Boolean = true,
-) : KotlinStackFrame(frame) {
-
-    init {
-        descriptor.updateRepresentation(null, DescriptorLabelListener.DUMMY_LISTENER)
-    }
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-
-        val frame = other as? JavaStackFrame ?: return false
-
-        return descriptor.frameProxy == frame.descriptor.frameProxy
-    }
-
-    override fun hashCode(): Int {
-        return descriptor.frameProxy.hashCode()
-    }
+open class CoroutineStackFrame(val debugProcess: DebugProcessImpl, val item: CoroutineStackFrameItem) :
+    StackFrameItem.CapturedStackFrame(debugProcess, item) {
 
     override fun computeChildren(node: XCompositeNode) {
-        if (includeFrameVariables || spilledVariables == null) {
+        if (item is FrameProvider)
+            item.provideFrame(debugProcess)?.computeChildren(node)
+        else
             super.computeChildren(node)
-        } else {
-            // ignore original frame variables
-            val list = XValueChildrenList()
-            spilledVariables.forEach { list.add(it) }
-            node.addChildren(list, true)
-        }
     }
 
-    override fun superBuildVariables(evaluationContext: EvaluationContextImpl, children: XValueChildrenList) {
-        super.superBuildVariables(evaluationContext, children)
-        if (spilledVariables != null) {
-            children.let {
-                val varNames = (0 until children.size()).map { children.getName(it) }.toSet()
-                spilledVariables.forEach {
-                    if (!varNames.contains(it.name))
-                        children.add(it)
-                }
-            }
-        }
-    }
+    override fun getCaptionAboveOf() = "CoroutineExit"
 
-    override fun getSourcePosition() =
-        position ?: super.getSourcePosition()
+    override fun hasSeparatorAbove(): Boolean =
+        false
 }
+
+typealias CoroutineGeneratedFrame = StackFrameItem.CapturedStackFrame

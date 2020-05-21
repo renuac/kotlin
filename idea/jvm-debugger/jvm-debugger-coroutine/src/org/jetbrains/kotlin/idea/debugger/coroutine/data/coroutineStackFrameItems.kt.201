@@ -16,7 +16,6 @@ import org.jetbrains.kotlin.idea.debugger.coroutine.proxy.LocationStackFrameProx
 import org.jetbrains.kotlin.idea.debugger.coroutine.util.findPosition
 import org.jetbrains.kotlin.idea.debugger.coroutine.util.isInvokeSuspend
 import org.jetbrains.kotlin.idea.debugger.coroutine.util.logger
-import org.jetbrains.kotlin.idea.debugger.stackFrame.KotlinStackFrame
 
 /**
  * Creation frame of coroutine either in RUNNING or SUSPENDED state.
@@ -27,12 +26,12 @@ class CreationCoroutineStackFrameItem(
     val first: Boolean
 ) : CoroutineStackFrameItem(location, emptyList()) {
 
-    override fun createFrame(debugProcess: DebugProcessImpl): CoroutineGeneratedFrame? {
+    override fun createFrame(debugProcess: DebugProcessImpl): XStackFrame? {
         return debugProcess.invokeInManagerThread {
             val frame = debugProcess.findFirstFrame() ?: return@invokeInManagerThread null
             val locationFrame = LocationStackFrameProxyImpl(location, frame)
             val position = location.findPosition(debugProcess.project)
-            CreationCoroutineStackFrame(debugProcess, this, first)
+            CreationCoroutineStackFrame(locationFrame, position, first)
         }
     }
 }
@@ -46,18 +45,19 @@ class SuspendCoroutineStackFrameItem(
     spilledVariables: List<XNamedValue> = emptyList()
 ) : CoroutineStackFrameItem(location, spilledVariables)
 
+
 /**
  * Restored from memory dump
  */
 class DefaultCoroutineStackFrameItem(location: Location, spilledVariables: List<XNamedValue>) :
     CoroutineStackFrameItem(location, spilledVariables) {
 
-    override fun createFrame(debugProcess: DebugProcessImpl): CoroutineGeneratedFrame? {
+    override fun createFrame(debugProcess: DebugProcessImpl): XStackFrame? {
         return debugProcess.invokeInManagerThread {
             val frame = debugProcess.findFirstFrame() ?: return@invokeInManagerThread null
             val locationStackFrameProxyImpl = LocationStackFrameProxyImpl(location, frame)
             val position = location.findPosition(debugProcess.project) ?: return@invokeInManagerThread null
-            CoroutineStackFrame(debugProcess, this)
+            CoroutineStackFrame(locationStackFrameProxyImpl, position, spilledVariables, false)
         }
     }
 }
@@ -77,24 +77,25 @@ class DefaultCoroutineStackFrameItem(location: Location, spilledVariables: List<
 open class RunningCoroutineStackFrameItem(
     val frame: StackFrameProxyImpl,
     spilledVariables: List<XNamedValue> = emptyList()
-) : CoroutineStackFrameItem(frame.location(), spilledVariables), FrameProvider {
-    override fun createFrame(debugProcess: DebugProcessImpl): CoroutineGeneratedFrame? {
+) : CoroutineStackFrameItem(frame.location(), spilledVariables) {
+    override fun createFrame(debugProcess: DebugProcessImpl): XStackFrame? {
         return debugProcess.invokeInManagerThread {
-            CoroutineStackFrame(debugProcess, this)
+            val position = frame.location().findPosition(debugProcess.project)
+            CoroutineStackFrame(frame, position)
         }
     }
-
-    override fun provideFrame(debugProcess: DebugProcessImpl): XStackFrame? =
-        debugProcess.invokeInManagerThread { KotlinStackFrame(frame) }
 }
 
 sealed class CoroutineStackFrameItem(val location: Location, val spilledVariables: List<XNamedValue>) :
     StackFrameItem(location, spilledVariables) {
     val log by logger
 
-    override fun createFrame(debugProcess: DebugProcessImpl): CoroutineGeneratedFrame? {
+    override fun createFrame(debugProcess: DebugProcessImpl): XStackFrame? {
         return debugProcess.invokeInManagerThread {
-            CoroutineStackFrame(debugProcess, this)
+            val frame = debugProcess.findFirstFrame() ?: return@invokeInManagerThread null
+            val locationFrame = LocationStackFrameProxyImpl(location, frame)
+            val position = location.findPosition(debugProcess.project)
+            CoroutineStackFrame(locationFrame, position)
         }
     }
 
@@ -104,10 +105,6 @@ sealed class CoroutineStackFrameItem(val location: Location, val spilledVariable
 
     fun isInvokeSuspend(): Boolean =
         location.isInvokeSuspend()
-}
-
-interface FrameProvider {
-    fun provideFrame(debugProcess: DebugProcessImpl): XStackFrame?
 }
 
 fun DebugProcessImpl.findFirstFrame(): StackFrameProxyImpl? =
