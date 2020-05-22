@@ -30,6 +30,7 @@ import com.intellij.xml.XmlSchemaProvider
 import org.jetbrains.kotlin.idea.framework.KotlinSdkType
 import org.jetbrains.kotlin.idea.perf.Stats.Companion.tcSuite
 import org.jetbrains.kotlin.idea.perf.Stats.Companion.tcTest
+import org.jetbrains.kotlin.idea.testFramework.TestApplicationManager
 import org.jetbrains.kotlin.idea.util.getProjectJdkTableSafe
 import java.io.File
 

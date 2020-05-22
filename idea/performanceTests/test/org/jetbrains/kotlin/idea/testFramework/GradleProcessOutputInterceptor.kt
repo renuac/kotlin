@@ -44,8 +44,10 @@ private class GradleProcessOutputInterceptorImpl : GradleProcessOutputIntercepto
     private val buffer = StringBuilder()
 
     override fun onTaskOutput(id: ExternalSystemTaskId, text: String, stdOut: Boolean) {
-        if (id.projectSystemId == GRADLE_SYSTEM_ID && text.isNotEmpty())
+        if (id.projectSystemId == GRADLE_SYSTEM_ID && text.isNotEmpty()) {
+            gradleMessage { text }
             buffer.append(text)
+        }
     }
 
     override fun reset() = buffer.setLength(0)

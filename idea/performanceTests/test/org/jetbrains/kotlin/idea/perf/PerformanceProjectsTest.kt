@@ -8,13 +8,11 @@ package org.jetbrains.kotlin.idea.perf
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.idea.highlighter.KotlinPsiChecker
 import org.jetbrains.kotlin.idea.highlighter.KotlinPsiCheckerAndHighlightingUpdater
 import org.jetbrains.kotlin.idea.perf.Stats.Companion.TEST_KEY
-import org.jetbrains.kotlin.idea.perf.Stats.Companion.WARM_UP
 import org.jetbrains.kotlin.idea.perf.Stats.Companion.runAndMeasure
 import org.jetbrains.kotlin.idea.perf.Stats.Companion.tcSuite
 import org.jetbrains.kotlin.idea.testFramework.Fixture
@@ -29,10 +27,10 @@ class PerformanceProjectsTest : AbstractPerformanceProjectsTest() {
     companion object {
 
         @JvmStatic
-        var warmedUp: Boolean = false
+        val hwStats: Stats = Stats("helloWorld project")
 
         @JvmStatic
-        val hwStats: Stats = Stats("helloWorld project")
+        val warmUp = WarmUpProject(hwStats)
 
         @JvmStatic
         val timer: AtomicLong = AtomicLong()
@@ -53,17 +51,28 @@ class PerformanceProjectsTest : AbstractPerformanceProjectsTest() {
 
     override fun setUp() {
         super.setUp()
-        // warm up: open simple small project
-        if (!warmedUp) {
-            warmUpProject(hwStats, "src/HelloMain.kt") { perfOpenHelloWorld(hwStats, WARM_UP) }
-            warmedUp = true
-        }
+        warmUp.warmUp(this)
     }
 
     fun testHelloWorldProject() {
-
         tcSuite("Hello world project") {
-            myProject = perfOpenHelloWorld(hwStats)
+            myProject = perfOpenProject(stats = hwStats) {
+                name("helloKotlin")
+
+                kotlinFile("HelloMain") {
+                    topFunction("main") {
+                        param("args", "Array<String>")
+                        body("""println("Hello World!")""")
+                    }
+                }
+
+                kotlinFile("HelloMain2") {
+                    topFunction("main") {
+                        param("args", "Array<String>")
+                        body("""println("Hello World!")""")
+                    }
+                }
+            }
 
             // highlight
             perfHighlightFile("src/HelloMain.kt", hwStats)

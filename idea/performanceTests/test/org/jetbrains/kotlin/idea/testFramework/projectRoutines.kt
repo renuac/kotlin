@@ -5,6 +5,9 @@
 
 package org.jetbrains.kotlin.idea.testFramework
 
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings
+import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
 import com.intellij.ide.startup.impl.StartupManagerImpl
 import com.intellij.lang.LanguageAnnotators
 import com.intellij.lang.LanguageExtensionPoint
@@ -70,10 +73,23 @@ fun dispatchAllInvocationEvents() {
 fun loadProjectWithName(path: String, name: String): Project? =
     ProjectManagerEx.getInstanceEx().loadProject(Paths.get(path), name)
 
-fun closeProject(project: Project) {
+fun TestApplicationManager.closeProject(project: Project) {
+    val name = project.name
+    val startupManagerImpl = StartupManager.getInstance(project) as StartupManagerImpl
+    val daemonCodeAnalyzerSettings = DaemonCodeAnalyzerSettings.getInstance()
+    val daemonCodeAnalyzerImpl = DaemonCodeAnalyzer.getInstance(project) as DaemonCodeAnalyzerImpl
+
+    daemonCodeAnalyzerSettings.isImportHintEnabled = true // return default value to avoid unnecessary save
+    startupManagerImpl.checkCleared()
+    daemonCodeAnalyzerImpl.cleanupAfterTest()
+
+    logMessage { "project '$name' is about to be closed" }
     dispatchAllInvocationEvents()
     val projectManagerEx = ProjectManagerEx.getInstanceEx()
     projectManagerEx.forceCloseProjectEx(project, true)
+
+    setDataProvider(null)
+    logMessage { "project '$name' successfully closed" }
 }
 
 fun runStartupActivities(project: Project) {
@@ -106,8 +122,16 @@ fun replaceWithCustomHighlighter(parentDisposable: Disposable, fromImplementatio
     }
 }
 
-fun logMessage(message: () -> String) {
+inline fun gradleMessage(block: () -> String) {
+    print("#gradle ${block()}")
+}
+
+inline fun logMessage(message: () -> String) {
     println("-- ${message()}")
+}
+
+inline fun tcMessage(block: () -> String) {
+    println("##teamcity[${block()}]")
 }
 
 fun logMessage(t: Throwable, message: () -> String) {

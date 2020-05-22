@@ -13,6 +13,7 @@ import com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPassFactory
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInspection.InspectionProfileEntry
 import com.intellij.ide.startup.impl.StartupManagerImpl
+import com.intellij.idea.initApplication
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.editor.EditorFactory
@@ -38,6 +39,9 @@ import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.idea.framework.KotlinSdkType
 import org.jetbrains.kotlin.idea.perf.Stats.Companion.WARM_UP
 import org.jetbrains.kotlin.idea.perf.Stats.Companion.runAndMeasure
+import org.jetbrains.kotlin.idea.perf.util.PerformanceSuite.ApplicationScope.Companion.initApp
+import org.jetbrains.kotlin.idea.perf.util.PerformanceSuite.ApplicationScope.Companion.initSdk
+import org.jetbrains.kotlin.idea.perf.util.ProfileTools.Companion.initDefaultProfile
 import org.jetbrains.kotlin.idea.test.invalidateLibraryCache
 import org.jetbrains.kotlin.idea.testFramework.*
 import org.jetbrains.kotlin.idea.testFramework.Fixture.Companion.cleanupCaches
@@ -45,7 +49,6 @@ import org.jetbrains.kotlin.idea.testFramework.Fixture.Companion.close
 import org.jetbrains.kotlin.idea.testFramework.Fixture.Companion.isAKotlinScriptFile
 import org.jetbrains.kotlin.idea.testFramework.Fixture.Companion.openFileInEditor
 import org.jetbrains.kotlin.idea.testFramework.Fixture.Companion.openFixture
-import org.jetbrains.kotlin.idea.testFramework.ProjectOpenAction.SIMPLE_JAVA_MODULE
 import org.jetbrains.kotlin.idea.util.getProjectJdkTableSafe
 import java.io.File
 
@@ -63,29 +66,11 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
     override fun setUp() {
         super.setUp()
 
-        myApplication = TestApplicationManager.getInstance()
-        runWriteAction {
-            val jdkTableImpl = JavaAwareProjectJdkTableImpl.getInstanceEx()
-            val homePath = if (jdkTableImpl.internalJdk.homeDirectory!!.name == "jre") {
-                jdkTableImpl.internalJdk.homeDirectory!!.parent.path
-            } else {
-                jdkTableImpl.internalJdk.homePath!!
-            }
-
-            val javaSdk = JavaSdk.getInstance()
-            jdk18 = javaSdk.createJdk("1.8", homePath)
-            val internal = javaSdk.createJdk("IDEA jdk", homePath)
-
-            val jdkTable = getProjectJdkTableSafe()
-            jdkTable.addJdk(jdk18, testRootDisposable)
-            jdkTable.addJdk(internal, testRootDisposable)
-            KotlinSdkType.setUpIfNeeded()
-        }
-
-        GradleProcessOutputInterceptor.install(testRootDisposable)
+        myApplication = initApp(testRootDisposable)
+        initSdk(testRootDisposable)
     }
 
-    protected fun warmUpProject(stats: Stats, vararg filesToHighlight: String, openProject: () -> Project) {
+    internal fun warmUpProject(stats: Stats, vararg filesToHighlight: String, openProject: () -> Project) {
         assertTrue(filesToHighlight.isNotEmpty())
 
         val project = openProject()
@@ -95,8 +80,7 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
                 assertTrue("kotlin project has been not imported properly", perfHighlightFile.isNotEmpty())
             }
         } finally {
-            closeProject(project)
-            myApplication.setDataProvider(null)
+            myApplication.closeProject(project)
         }
     }
 
@@ -105,15 +89,9 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
         RunAll(
             ThrowableRunnable { super.tearDown() },
             ThrowableRunnable {
-                if (myProject != null) {
-                    logMessage { "myProject is about to be closed" }
-                    DaemonCodeAnalyzerSettings.getInstance().isImportHintEnabled = true // return default value to avoid unnecessary save
-                    (StartupManager.getInstance(project()) as StartupManagerImpl).checkCleared()
-                    (DaemonCodeAnalyzer.getInstance(project()) as DaemonCodeAnalyzerImpl).cleanupAfterTest()
-                    closeProject(project())
-                    myApplication.setDataProvider(null)
+                myProject?.let {
+                    myApplication.closeProject(it)
                     myProject = null
-                    logMessage { "myProject is closed" }
                 }
             }).run()
     }
@@ -123,14 +101,70 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
         return if (lastIndexOf >= 0) fileName.substring(lastIndexOf + 1) else fileName
     }
 
-    protected fun perfOpenHelloWorld(stats: Stats, note: String = ""): Project =
-        perfOpenProject(
-            name = "helloKotlin",
-            stats = stats,
-            note = note,
-            path = "idea/testData/perfTest/helloKotlin",
-            openAction = SIMPLE_JAVA_MODULE
-        )
+    protected fun perfOpenProject(
+        stats: Stats,
+        note: String = "",
+        fast: Boolean = false,
+        initializer: ProjectBuilder.() -> Unit,
+    ): Project {
+        val projectBuilder = ProjectBuilder().apply(initializer)
+        val name = projectBuilder.name
+        val openProjectOperation = projectBuilder.openProjectOperation()
+
+        val warmUpIterations = if (fast) 0 else 5
+        val iterations = if (fast) 1 else 5
+
+        var lastProject: Project? = null
+        var counter = 0
+
+        performanceTest<Unit, Project> {
+            name("open project $name${if (note.isNotEmpty()) " $note" else ""}")
+            stats(stats)
+            warmUpIterations(warmUpIterations)
+            iterations(iterations)
+            checkStability(!fast)
+            test {
+                it.value = openProjectOperation.openProject()
+            }
+            tearDown {
+                it.value?.let { project ->
+                    lastProject = project
+                    openProjectOperation.postOpenProject(project)
+
+                    logMessage { "project '$name' successfully opened" }
+
+                    // close all project but last - we're going to return and use it further
+                    if (counter < warmUpIterations + iterations - 1) {
+                        myApplication.closeProject(project)
+                    }
+                    counter++
+                }
+            }
+        }
+
+        // indexing
+        lastProject?.let { project ->
+            invalidateLibraryCache(project)
+
+            CodeInsightTestFixtureImpl.ensureIndexesUpToDate(project)
+
+            dispatchAllInvocationEvents()
+
+            logMessage { "project $name is ${if (project.isInitialized) "initialized" else "not initialized"}" }
+
+            with(DumbService.getInstance(project)) {
+                queueTask(UnindexedFilesUpdater(project))
+                completeJustSubmittedTasks()
+            }
+            dispatchAllInvocationEvents()
+
+            Fixture.enableAnnotatorsAndLoadDefinitions(project)
+
+            myApplication.setDataProvider(TestDataProvider(project))
+        }
+
+        return lastProject ?: error("unable to open project $name")
+    }
 
     protected fun perfOpenProject(
         name: String,
@@ -170,16 +204,13 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
                 it.value?.let { project ->
                     lastProject = project
                     openAction.postOpenProject(openProject = openProject, project = project)
-                    openAction.initDefaultProfile(project)
+                    project.initDefaultProfile()
 
                     logMessage { "project '$name' successfully opened" }
 
                     // close all project but last - we're going to return and use it further
                     if (counter < warmUpIterations + iterations - 1) {
-                        myApplication.setDataProvider(null)
-                        logMessage { "project '$name' is about to be closed" }
-                        closeProject(project)
-                        logMessage { "project '$name' successfully closed" }
+                        myApplication.closeProject(project)
                     }
                     counter++
                 }
@@ -448,92 +479,6 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
         }
     }
 
-    fun perfType(
-        stats: Stats,
-        fileName: String,
-        marker: String,
-        insertString: String,
-        surroundItems: String = "\n",
-        typeAfterMarker: Boolean = true,
-        revertChangesAtTheEnd: Boolean = true,
-        note: String = "",
-        delay: Long? = null
-    ) = perfType(
-        project(), stats, fileName, marker, insertString, surroundItems,
-        typeAfterMarker = typeAfterMarker,
-        revertChangesAtTheEnd = revertChangesAtTheEnd,
-        note = note,
-        delay = delay
-    )
-
-    fun perfType(
-        project: Project,
-        stats: Stats,
-        fileName: String,
-        marker: String,
-        insertString: String,
-        surroundItems: String = "\n",
-        typeAfterMarker: Boolean = true,
-        revertChangesAtTheEnd: Boolean = true,
-        note: String = "",
-        delay: Long? = null
-    ) {
-        performanceTest<Pair<String, Fixture>, List<HighlightInfo>> {
-            name("type ${notePrefix(note)}$fileName")
-            stats(stats)
-            warmUpIterations(8)
-            iterations(15)
-            setUp {
-                val fixture = openFixture(project, fileName)
-                val editor = fixture.editor
-
-                val initialText = editor.document.text
-                updateScriptDependenciesIfNeeded(fileName, fixture)
-
-                val tasksIdx = editor.document.text.indexOf(marker)
-                assertTrue("marker '$marker' not found in $fileName", tasksIdx > 0)
-                if (typeAfterMarker) {
-                    editor.caretModel.moveToOffset(tasksIdx + marker.length + 1)
-                } else {
-                    editor.caretModel.moveToOffset(tasksIdx - 1)
-                }
-
-                for (surroundItem in surroundItems) {
-                    EditorTestUtil.performTypingAction(editor, surroundItem)
-                }
-
-                editor.caretModel.moveToOffset(editor.caretModel.offset - if (typeAfterMarker) 1 else 2)
-
-                if (!typeAfterMarker) {
-                    for (surroundItem in surroundItems) {
-                        EditorTestUtil.performTypingAction(editor, surroundItem)
-                    }
-                    editor.caretModel.moveToOffset(editor.caretModel.offset - 2)
-                }
-
-                it.setUpValue = Pair(initialText, fixture)
-            }
-            test {
-                val fixture = it.setUpValue!!.second
-                for (i in insertString.indices) {
-                    fixture.type(insertString[i])
-                    delay?.let { d -> Thread.sleep(d) }
-                }
-                it.value = fixture.doHighlighting()
-            }
-            tearDown {
-                it.value?.let { list ->
-                    assertNotEmpty(list)
-                }
-                it.setUpValue?.let { pair ->
-                    pair.second.revertChanges(revertChangesAtTheEnd, pair.first)
-                }
-                commitAllDocuments()
-            }
-            profilerEnabled(true)
-        }
-    }
-
     fun perfCopyAndPaste(
         stats: Stats,
         sourceFileName: String,
@@ -630,12 +575,16 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
     protected fun perfHighlightFileEmptyProfile(name: String, stats: Stats): List<HighlightInfo> =
         perfHighlightFile(project(), name, stats, tools = emptyArray(), note = "empty profile")
 
-    private fun perfHighlightFile(
+    protected fun perfHighlightFile(
         project: Project,
         fileName: String,
         stats: Stats,
         tools: Array<InspectionProfileEntry>? = null,
-        note: String = ""
+        note: String = "",
+        warmUpIterations: Int = 3,
+        iterations: Int = 10,
+        checkStability: Boolean = true,
+        filenameSimplifier: (String) -> String = ::simpleFilename
     ): List<HighlightInfo> {
         val profileManager = ProjectInspectionProfileManager.getInstance(project)
         val currentProfile = profileManager.currentProfile
@@ -647,10 +596,11 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
                 val isWarmUp = note == WARM_UP
                 var highlightInfos: List<HighlightInfo> = emptyList()
                 performanceTest<EditorFile, List<HighlightInfo>> {
-                    name("highlighting ${notePrefix(note)}${simpleFilename(fileName)}")
+                    name("highlighting ${notePrefix(note)}${filenameSimplifier(fileName)}")
                     stats(stats)
-                    warmUpIterations(if (isWarmUp) 1 else 3)
-                    iterations(if (isWarmUp) 2 else 10)
+                    warmUpIterations(if (isWarmUp) 1 else warmUpIterations)
+                    iterations(if (isWarmUp) 2 else iterations)
+                    checkStability(checkStability)
                     setUp {
                         it.setUpValue = openFileInEditor(project, fileName)
                     }

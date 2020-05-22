@@ -8,6 +8,7 @@ package org.jetbrains.kotlin.idea.perf
 import org.jetbrains.kotlin.idea.perf.WholeProjectPerformanceTest.Companion.nsToMs
 import org.jetbrains.kotlin.idea.perf.profilers.*
 import org.jetbrains.kotlin.idea.testFramework.logMessage
+import org.jetbrains.kotlin.idea.testFramework.tcMessage
 import org.jetbrains.kotlin.idea.testFramework.suggestOsNeutralFileName
 import org.jetbrains.kotlin.util.PerformanceCounter
 import java.io.*
@@ -245,7 +246,14 @@ class Stats(
 
     private fun <SV, TV> mainPhase(phaseData: PhaseData<SV, TV>): Array<StatInfos> {
         val statInfosArray = phase(phaseData, "")
-        statInfosArray.filterNotNull().map { it[ERROR_KEY] as? Throwable }.firstOrNull()?.let { throw it }
+        statInfosArray.filterNotNull().map { it[ERROR_KEY] as? Throwable }.firstOrNull()?.let {
+            printTimings(
+                phaseData.testName,
+                printOnlyErrors = true,
+                statInfoArray = statInfosArray
+            )
+            throw it
+        }
         return statInfosArray
     }
 
@@ -359,26 +367,31 @@ class Stats(
         }
 
         fun printTestStarted(testName: String) {
-            println("##teamcity[testStarted name='$testName' captureStandardOutput='true']")
+            //logMessage { "testStarted name='$testName'" }
+            tcMessage { "testStarted name='$testName'" }
         }
 
         fun printStatValue(name: String, value: Any) {
-            println("##teamcity[buildStatisticValue key='$name' value='$value']")
+            //logMessage { "buildStatisticValue key='$name' value='$value'" }
+            tcMessage { "buildStatisticValue key='$name' value='$value'" }
         }
 
         fun printTestMetadata(testName: String, name: String, value: Number) {
-            println("##teamcity[testMetadata testName='$testName' name='$name' type='number' value='$value']")
+            //logMessage { "testMetadata testName='$testName' name='$name' type='number' value='$value'" }
+            tcMessage { "testMetadata testName='$testName' name='$name' type='number' value='$value'" }
         }
 
         private fun printTestFinished(testName: String) {
-            println("##teamcity[testFinished name='$testName']")
+            //logMessage { "testFinished name='$testName'" }
+            tcMessage { "testFinished name='$testName'" }
         }
 
         fun printTestFinished(testName: String, spentMs: Long, includeStatValue: Boolean = true) {
             if (includeStatValue) {
                 printStatValue(testName, spentMs)
             }
-            println("##teamcity[testFinished name='$testName' duration='$spentMs']")
+            //logMessage { "testFinished name='$testName' duration='$spentMs'" }
+            tcMessage { "testFinished name='$testName' duration='$spentMs'" }
         }
 
         fun printTestFinished(testName: String, error: Throwable) {
@@ -388,15 +401,15 @@ class Stats(
         }
 
         private fun printTestFailed(testName: String, details: String) {
-            println("##teamcity[testFailed name='$testName' message='Exceptions reported' details='${tcEscape(details)}']")
+            tcMessage { "testFailed name='$testName' message='Exceptions reported' details='${tcEscape(details)}'" }
         }
 
-        inline fun tcSuite(name: String, block: () -> Unit) {
-            println("##teamcity[testSuiteStarted name='$name']")
+        fun tcSuite(name: String, block: () -> Unit) {
+            tcMessage { "testSuiteStarted name='$name'" }
             try {
                 block()
             } finally {
-                println("##teamcity[testSuiteFinished name='$name']")
+                tcMessage { "testSuiteFinished name='$name'" }
             }
         }
 
